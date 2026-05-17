@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="GymPro Admin Dashboard - Manage members, memberships, and notifications">
+  <title>GymPro - Dashboard</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+
+<body>
+  <button class="mobile-toggle" id="mobileToggle">☰</button>
+
+  <div class="dashboard">
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-logo">
+        <div class="icon"><img src="/images/logo.jpg" alt="Logo"></div>
+        <h2>FIT24</h2>
+      </div>
+
+      <nav class="nav-menu">
+      <button class="nav-item active" data-page="overview" id="nav-overview">
+        <span class="nav-icon">📊</span> Overview
+      </button>
+      <button class="nav-item" data-page="members" id="nav-members">
+        <span class="nav-icon">👥</span> Members
+      </button>
+      <button class="nav-item" data-page="notifications" id="nav-notifications">
+        <span class="nav-icon">🔔</span> Notifications
+      </button>
+      <button class="nav-item" data-page="settings" id="nav-settings">
+        <span class="nav-icon">⚙️</span> Settings
+      </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="admin-info">
+          <div class="admin-avatar" id="adminAvatar">A</div>
+          <div>
+            <div class="name" id="adminName">Admin</div>
+            <div class="role">Administrator</div>
+          </div>
+        </div>
+        <button class="nav-item" id="themeToggleBtn" style="margin-top:8px;">
+          <span class="nav-icon" id="themeIcon">☀️</span> <span id="themeText">Light Mode</span>
+        </button>
+        <button class="nav-item" id="logoutBtn" style="margin-top:8px; color: var(--red);">
+          <span class="nav-icon">🚪</span> Logout
+        </button>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+
+      <!-- OVERVIEW PAGE -->
+      <section class="page-section active" id="page-overview">
+        <div class="page-header">
+          <h1>Dashboard</h1>
+          <p>Welcome back! Here's your gym overview.</p>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card purple fade-in">
+            <div class="stat-icon">👥</div>
+            <div class="stat-value" id="statTotal">0</div>
+            <div class="stat-label">Total Members</div>
+          </div>
+          <div class="stat-card green fade-in" style="animation-delay:.1s">
+            <div class="stat-icon">✅</div>
+            <div class="stat-value" id="statActive">0</div>
+            <div class="stat-label">Active Members</div>
+          </div>
+          <div class="stat-card yellow fade-in" style="animation-delay:.2s">
+            <div class="stat-icon">⏰</div>
+            <div class="stat-value" id="statExpiring">0</div>
+            <div class="stat-label">Expiring Soon</div>
+          </div>
+          <div class="stat-card red fade-in" style="animation-delay:.3s">
+            <div class="stat-icon">❌</div>
+            <div class="stat-value" id="statExpired">0</div>
+            <div class="stat-label">Expired</div>
+          </div>
+        </div>
+
+        <div class="section-card slide-up">
+          <div class="section-header">
+            <h2>⏰ Expiring Soon</h2>
+          </div>
+          <div id="expiringList"></div>
+        </div>
+      </section>
+
+      <!-- MEMBERS PAGE -->
+      <section class="page-section" id="page-members">
+        <div class="page-header"
+          style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+          <div>
+            <h1>Members</h1>
+            <p>Manage your gym members</p>
+          </div>
+          <button class="btn btn-primary" id="addMemberBtn" style="width:auto;">+ Add Member</button>
+        </div>
+
+        <div class="section-card">
+          <div class="section-header">
+            <h2>All Members</h2>
+            <div class="toolbar">
+              <div class="search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="searchInput" placeholder="Search members...">
+              </div>
+              <select class="filter-select" id="statusFilter">
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="expired">Expired</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="membersTableContainer">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Member</th>
+                  <th>Phone</th>
+                  <th>Plan</th>
+                  <th>Join Date</th>
+                  <th>Expiry Date</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="membersBody"></tbody>
+            </table>
+          </div>
+
+          <div class="empty-state" id="emptyState" style="display:none;">
+            <div class="empty-icon">🏋️</div>
+            <h3>No members found</h3>
+            <p>Add your first member to get started</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- NOTIFICATIONS PAGE -->
+      <section class="page-section" id="page-notifications">
+        <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+          <div>
+            <h1>Notifications</h1>
+            <p>SMS notification history</p>
+          </div>
+          <div class="toolbar" style="margin-top: 0;">
+            <select class="filter-select" id="notifFilter">
+              <option value="all">All Notifications</option>
+              <option value="sent">Sent Successfully</option>
+              <option value="failed">Failed</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="loadNotifications()" title="Refresh">🔄 Refresh</button>
+          </div>
+        </div>
+        
+        <div id="notificationsList" class="notifications-feed"></div>
+        
+        <div class="empty-state section-card" id="emptyNotifications" style="display:none;">
+          <div class="empty-icon">📭</div>
+          <h3>No notifications found</h3>
+          <p>You have no notification history matching this filter.</p>
+        </div>
+      </section>
+
+      <!-- SETTINGS PAGE -->
+      <section class="page-section" id="page-settings">
+        <div class="page-header">
+          <h1>Settings</h1>
+          <p>Manage your account</p>
+        </div>
+        <div class="settings-card">
+          <h3>🔑 Change Password</h3>
+          <form id="passwordForm">
+            <div class="form-group">
+              <label>Current Password</label>
+              <input type="password" class="form-input" id="currentPassword" required>
+            </div>
+            <div class="form-group">
+              <label>New Password</label>
+              <input type="password" class="form-input" id="newPassword" required minlength="6">
+            </div>
+            <div class="form-group">
+              <label>Confirm New Password</label>
+              <input type="password" class="form-input" id="confirmPassword" required minlength="6">
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:auto;">Update Password</button>
+          </form>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ADD/EDIT MEMBER MODAL -->
+  <div class="modal-overlay" id="memberModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modalTitle">Add New Member</h2>
+        <button class="modal-close" id="modalClose">✕</button>
+      </div>
+      <form id="memberForm">
+        <div class="modal-body">
+          <input type="hidden" id="memberId">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Full Name *</label>
+              <input type="text" class="form-input" id="memberName" required placeholder="John Doe">
+            </div>
+            <div class="form-group">
+              <label>Phone Number *</label>
+              <input type="tel" class="form-input" id="memberPhone" required placeholder="+977-9800000000">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Email</label>
+              <input type="email" class="form-input" id="memberEmail" placeholder="john@example.com">
+            </div>
+            <div class="form-group">
+              <label>Address</label>
+              <input type="text" class="form-input" id="memberAddress" placeholder="Kathmandu, Nepal">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Join Date *</label>
+              <input type="date" class="form-input" id="memberJoinDate" required>
+            </div>
+            <div class="form-group">
+              <label>Duration (Months) *</label>
+              <input type="number" class="form-input" id="memberDuration" min="1" max="36" required
+                placeholder="e.g. 3">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Expiry Date</label>
+              <input type="date" class="form-input" id="memberExpiryDate" placeholder="Auto-calculated if blank">
+            </div>
+            <div class="form-group">
+              <label>Plan Type</label>
+              <select class="form-input" id="memberPlan">
+                <option value="Monthly">Monthly</option>
+                <option value="Quarterly">Quarterly (3 months)</option>
+                <option value="Half-Yearly">Half-Yearly (6 months)</option>
+                <option value="Yearly">Yearly (12 months)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Notes</label>
+            <textarea class="form-input" id="memberNotes" placeholder="Any additional notes..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="modalCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="modalSubmit" style="width:auto;">Add Member</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- CONFIRM DIALOG -->
+  <div class="modal-overlay confirm-dialog" id="confirmDialog">
+    <div class="modal">
+      <div class="modal-body">
+        <div class="confirm-icon">⚠️</div>
+        <h3 id="confirmTitle">Are you sure?</h3>
+        <p id="confirmMessage">This action cannot be undone.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="confirmCancel">Cancel</button>
+        <button class="btn btn-danger" id="confirmOk">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST CONTAINER -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/js/dashboard.js"></script>
+</body>
+
+</html>

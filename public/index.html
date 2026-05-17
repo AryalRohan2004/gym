@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="GymPro Management System - Admin Login">
+  <title>FIT24 - Login</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+
+<body>
+  <div class="login-page">
+    <div class="login-bg-orb"></div>
+    <div class="login-bg-orb"></div>
+    <div class="login-bg-orb"></div>
+
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="icon"><img src="/images/logo.jpg" alt="FIT24"></div>
+        <h1>FIT24</h1>
+        <p>Management System</p>
+      </div>
+
+      <div class="login-error" id="loginError"></div>
+
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input type="text" id="username" class="form-input" placeholder="Enter username" required
+            autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" class="form-input" placeholder="Enter password" required
+            autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary" id="loginBtn">
+          <span id="loginText">Sign In</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script src="/js/login.js"></script>
+</body>
+
+</html>
