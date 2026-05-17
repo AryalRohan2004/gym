@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const db = require('../db/database');
+const hikvision = require('../services/hikvisionService');
 
 let twilioClient = null;
 let twilioPhone = null;
@@ -81,10 +82,30 @@ async function notifyMember(member, type) {
 async function runDailyCheck() {
   console.log('\n🔍 Running daily membership check...');
 
-  // Update expired members
+  // Update expired members in DB and sync to Hikvision
+  const allActive = db.getAllMembers('', 'active');
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const newlyExpired = [];
+  for (const m of allActive) {
+    const expiry = new Date(m.expiry_date);
+    expiry.setHours(0, 0, 0, 0);
+    if (expiry < now) newlyExpired.push(m);
+  }
+
   const expiredCount = db.updateExpiredMembers();
   if (expiredCount > 0) {
     console.log(`📋 Marked ${expiredCount} member(s) as expired.`);
+    // Sync each newly expired member to Hikvision
+    for (const m of newlyExpired) {
+      const expiredMember = { ...m, status: 'expired' };
+      const result = await hikvision.syncMemberToDevice(expiredMember);
+      if (result.success) {
+        console.log(`🔒 [Hikvision] ${m.full_name} disabled on device — membership expired.`);
+      } else {
+        console.log(`⚠️  [Hikvision] Could not disable ${m.full_name} on device: ${result.message || ''}`);
+      }
+    }
   }
 
   const daysBeforeNotify = parseInt(process.env.NOTIFY_DAYS_BEFORE) || 3;

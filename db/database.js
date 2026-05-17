@@ -43,6 +43,11 @@ db.exec(`
     sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `);
 
 // ─── Migration for expiry_date ──────────────────────────────
@@ -239,6 +244,19 @@ function deleteNotification(id) {
   return db.prepare('DELETE FROM notifications WHERE id = ?').run(id);
 }
 
+// ─── Settings Queries ───────────────────────────────────────
+function getSetting(key, defaultValue = '') {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  return row ? row.value : defaultValue;
+}
+
+function setSetting(key, value) {
+  db.prepare(`
+    INSERT INTO settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(key, value);
+}
+
 module.exports = {
   db,
   seedAdmin,
@@ -257,5 +275,7 @@ module.exports = {
   logNotification,
   getNotifications,
   deleteNotification,
-  hasRecentNotification
+  hasRecentNotification,
+  getSetting,
+  setSetting
 };

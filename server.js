@@ -6,6 +6,7 @@ const path = require('path');
 const db = require('./db/database');
 const { requireAuth, requirePageAuth } = require('./middleware/auth');
 const { startScheduler, sendSMS, notifyMember } = require('./cron/notifier');
+const hikvision = require('./services/hikvisionService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -125,6 +126,9 @@ app.post('/api/members', requireAuth, (req, res) => {
     notes
   });
 
+  // Sync to Hikvision automatically
+  hikvision.syncMemberToDevice(member);
+
   res.status(201).json(member);
 });
 
@@ -173,6 +177,9 @@ app.put('/api/members/:id', requireAuth, (req, res) => {
     status: finalStatus,
     notes: notes !== undefined ? notes : existing.notes
   });
+
+  // Sync to Hikvision automatically
+  hikvision.syncMemberToDevice(member);
 
   res.json(member);
 });
@@ -244,6 +251,117 @@ app.put('/api/admin/password', requireAuth, (req, res) => {
   const hash = bcrypt.hashSync(newPassword, 10);
   db.updateAdminPassword(admin.id, hash);
   res.json({ success: true, message: 'Password updated successfully.' });
+});
+
+// ═══════════════════════════════════════════════════════════
+// HIKVISION ROUTES
+// ═══════════════════════════════════════════════════════════
+
+app.get('/api/hikvision/settings', requireAuth, (req, res) => {
+  const config = hikvision.getHikvisionConfig();
+  // Don't send back password directly for security, just send a flag if it's set
+  const responseConfig = {
+    ...config,
+    password: config.password ? '********' : ''
+  };
+  res.json(responseConfig);
+});
+
+app.post('/api/hikvision/settings', requireAuth, (req, res) => {
+  const { ip, port, username, password } = req.body;
+  
+  if (ip !== undefined) db.setSetting('hikvision_ip', ip);
+  if (port !== undefined) db.setSetting('hikvision_port', port);
+  if (username !== undefined) db.setSetting('hikvision_username', username);
+  if (password && password !== '********') db.setSetting('hikvision_password', password);
+
+  res.json({ success: true, message: 'Hikvision settings updated successfully.' });
+});
+
+app.post('/api/hikvision/test', requireAuth, async (req, res) => {
+  // Use provided config or fetch from DB
+  const ip = req.body.ip || db.getSetting('hikvision_ip', '');
+  const port = req.body.port || db.getSetting('hikvision_port', '80');
+  const username = req.body.username || db.getSetting('hikvision_username', 'admin');
+  const password = req.body.password && req.body.password !== '********' 
+    ? req.body.password 
+    : db.getSetting('hikvision_password', '');
+
+  if (!ip) {
+    return res.status(400).json({ success: false, message: 'IP Address is required.' });
+  }
+
+  const result = await hikvision.testHikvisionConnection(ip, port, username, password);
+  res.json(result);
+});
+
+app.post('/api/hikvision/setup-lan', requireAuth, async (req, res) => {
+  const laptopIp = req.body.laptopIp || '192.168.1.115';
+  const result = await hikvision.setupLanConnection(laptopIp);
+  res.json(result);
+});
+
+// ─── REAL-TIME AUTH CHECK (called by Hikvision BEFORE opening door) ──────────
+// The device POSTs to this endpoint when someone scans their fingerprint.
+// We check DB and respond 200 (allow) or 401 (deny).
+app.post('/api/hikvision/auth', async (req, res) => {
+  try {
+    const body = req.body;
+    // Extract Employee No from various Hikvision event formats
+    let employeeNo =
+      (body.AccessControllerEvent && body.AccessControllerEvent.employeeNoString) ||
+      body.employeeNo ||
+      body.EmployeeNo ||
+      (body.UserInfo && body.UserInfo.employeeNo);
+
+    if (!employeeNo) {
+      console.log('[Hikvision Auth] Request received but employeeNo missing:', JSON.stringify(body));
+      return res.status(400).json({ success: false, message: 'employeeNo not found' });
+    }
+
+    const phoneDigits = String(employeeNo).replace(/\D/g, '');
+    const allMembers = db.getAllMembers('', 'all');
+    const member = allMembers.find(m => String(m.phone).replace(/\D/g, '') === phoneDigits);
+
+    if (!member) {
+      console.log(`[Hikvision Auth] DENIED - Employee ID ${phoneDigits} not found in database.`);
+      return res.status(401).json({ success: false, message: 'Member not found', action: 'deny' });
+    }
+
+    if (member.status === 'active') {
+      console.log(`[Hikvision Auth] GRANTED - ${member.full_name} (${phoneDigits}) - Active member.`);
+      return res.status(200).json({ success: true, message: 'Access granted', action: 'open' });
+    } else {
+      console.log(`[Hikvision Auth] DENIED - ${member.full_name} (${phoneDigits}) - Status: ${member.status}`);
+      return res.status(401).json({ success: false, message: 'Membership expired', action: 'deny' });
+    }
+  } catch (err) {
+    console.error('[Hikvision Auth] Error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Legacy event webhook (fires AFTER door opens - kept for logging)
+app.post('/api/hikvision/event', async (req, res) => {
+  // Usually this does not requireAuth because it comes directly from the device
+  const eventData = req.body;
+  
+  // Extract employeeNo depending on the exact payload structure your Hikvision sends
+  // This is a placeholder extraction based on common ISAPI event structures
+  let employeeNo = null;
+  
+  if (eventData && eventData.AccessControllerEvent && eventData.AccessControllerEvent.employeeNoString) {
+    employeeNo = eventData.AccessControllerEvent.employeeNoString;
+  } else if (eventData && eventData.employeeNo) {
+    employeeNo = eventData.employeeNo;
+  }
+
+  if (!employeeNo) {
+    return res.status(400).json({ success: false, message: 'employeeNo not found in event payload' });
+  }
+
+  const result = await hikvision.handleFingerprintEvent(employeeNo);
+  res.json(result);
 });
 
 // ─── Serve Pages ────────────────────────────────────────────
