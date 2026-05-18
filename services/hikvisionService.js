@@ -277,12 +277,24 @@ async function syncMemberToDevice(member) {
     // NOTE: DS-K1T320EFWX ignores enable:false from ISAPI. Only full deletion works.
     if (member.status === 'expired') {
       async function tryDelete(employeeNo) {
-        const payload = { "UserInfoDelCond": { "EmployeeNoList": [{ "employeeNo": employeeNo }] } };
-        return fetchWithAuth(
+        // Try standard UserInfoDetail format first
+        const payload1 = { "UserInfoDetail": { "mode": "byEmployeeNo", "EmployeeNoList": [{ "employeeNo": employeeNo }] } };
+        let res = await fetchWithAuth(
           `http://${config.ip}:${config.port}/ISAPI/AccessControl/UserInfo/Delete?format=json`,
-          { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) },
+          { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload1) },
           config
         );
+        
+        if (!res.ok) {
+           // Fallback to UserInfoDelCond format
+           const payload2 = { "UserInfoDelCond": { "EmployeeNoList": [{ "employeeNo": employeeNo }] } };
+           res = await fetchWithAuth(
+            `http://${config.ip}:${config.port}/ISAPI/AccessControl/UserInfo/Delete?format=json`,
+            { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload2) },
+            config
+          );
+        }
+        return res;
       }
 
       let res = await tryDelete(digitsWithCode);
@@ -311,12 +323,19 @@ async function syncMemberToDevice(member) {
           "employeeNo": employeeNo,
           "name": member.full_name.substring(0, 32),
           "userType": "normal",
+          "doorRight": "1",
           "Valid": {
             "enable": true,
             "beginTime": "2000-01-01T00:00:00",
             "endTime": activeEndTime,
             "timeType": "local"
-          }
+          },
+          "RightPlan": [
+            {
+              "doorNo": 1,
+              "planTemplateNo": "1"
+            }
+          ]
         }
       };
       return fetchWithAuth(

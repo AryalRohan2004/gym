@@ -1,5 +1,4 @@
 const crypto = require('crypto');
-
 const HIK_IP   = '192.168.1.182';
 const HIK_PORT = '80';
 const HIK_USER = 'admin';
@@ -35,23 +34,34 @@ async function hikReq(path, method = 'GET', body = null) {
   return { status: res.status, body: await res.text() };
 }
 
-async function expireUser(employeeNo) {
-    console.log(`Setting user ${employeeNo} to EXPIRED (endTime in the past)...`);
-    const payload = {
-        "UserInfo": {
-            "employeeNo": employeeNo,
-            "name": "TestUser",
-            "userType": "normal",
-            "Valid": {
-                "enable": true,
-                "beginTime": "2000-01-01T00:00:00",
-                "endTime": "2020-01-01T00:00:00",
-                "timeType": "local"
-            }
+async function testDelete() {
+    console.log("Testing UserInfoDetail (often used for delete)");
+    const payload1 = {
+        "UserInfoDetail": {
+            "mode": "byEmployeeNo",
+            "EmployeeNoList": [{ "employeeNo": "9999" }]
         }
     };
-    const res = await hikReq('/ISAPI/AccessControl/UserInfo/SetUp?format=json', 'PUT', payload);
-    console.log("Response:", res.status, res.body);
+    let res = await hikReq('/ISAPI/AccessControl/UserInfo/Delete?format=json', 'PUT', payload1);
+    console.log("Payload1 Status:", res.status, res.body);
+
+    console.log("Testing UserInfoDelCond (with capital E)");
+    const payload2 = {
+        "UserInfoDelCond": {
+            "EmployeeNoList": [{ "employeeNo": "9999" }]
+        }
+    };
+    res = await hikReq('/ISAPI/AccessControl/UserInfo/Delete?format=json', 'PUT', payload2);
+    console.log("Payload2 Status:", res.status, res.body);
+
+    console.log("Testing UserInfoDelCond (with lowercase e)");
+    const payload3 = {
+        "UserInfoDelCond": {
+            "employeeNoList": [{ "employeeNo": "9999" }]
+        }
+    };
+    res = await hikReq('/ISAPI/AccessControl/UserInfo/Delete?format=json', 'PUT', payload3);
+    console.log("Payload3 Status:", res.status, res.body);
 }
 
-expireUser("9867782924");
+testDelete();
