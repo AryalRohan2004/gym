@@ -1,13 +1,13 @@
-const Database = require('better-sqlite3');
-const bcrypt = require('bcrypt');
+const { DatabaseSync } = require('node:sqlite');
+const bcrypt = require('bcryptjs');
 const path = require('path');
 
 const dbPath = path.join(__dirname, 'gym.db');
-const db = new Database(dbPath);
+const db = new DatabaseSync(dbPath);
 
 // Enable WAL mode for better performance
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+db.exec('PRAGMA journal_mode = WAL;');
+db.exec('PRAGMA foreign_keys = ON;');
 
 // ─── Create Tables ──────────────────────────────────────────
 db.exec(`

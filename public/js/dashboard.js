@@ -8,44 +8,18 @@
     const res = await fetch('/api/me');
     if (!res.ok) { window.location.href = '/'; return; }
     const data = await res.json();
-    document.getElementById('adminName').textContent = data.admin.username;
-    document.getElementById('adminAvatar').textContent = data.admin.username.charAt(0).toUpperCase();
+    if (data.admin.username === 'admin') {
+      document.getElementById('adminName').textContent = 'Durga';
+      document.getElementById('adminAvatar').innerHTML = '<img src="/images/durga.jpg" alt="Durga">';
+    } else {
+      document.getElementById('adminName').textContent = data.admin.username;
+      document.getElementById('adminAvatar').textContent = data.admin.username.charAt(0).toUpperCase();
+    }
   } catch { window.location.href = '/'; }
 })();
 
 // ─── Theme Toggle ──────────────────────────────
-const themeToggleBtn = document.getElementById('themeToggleBtn');
-const themeIcon = document.getElementById('themeIcon');
-const themeText = document.getElementById('themeText');
-
-function setTheme(isLight) {
-  if (isLight) {
-    document.body.classList.add('light-mode');
-    if (themeIcon) themeIcon.textContent = '🌙';
-    if (themeText) themeText.textContent = 'Dark Mode';
-    localStorage.setItem('theme', 'light');
-  } else {
-    document.body.classList.remove('light-mode');
-    if (themeIcon) themeIcon.textContent = '☀️';
-    if (themeText) themeText.textContent = 'Light Mode';
-    localStorage.setItem('theme', 'dark');
-  }
-}
-
-// Initialize theme from local storage
-const savedTheme = localStorage.getItem('theme');
-if (savedTheme === 'light') {
-  setTheme(true);
-} else {
-  setTheme(false);
-}
-
-if (themeToggleBtn) {
-  themeToggleBtn.addEventListener('click', () => {
-    const isLightMode = document.body.classList.contains('light-mode');
-    setTheme(!isLightMode);
-  });
-}
+// Theme is locked to Light Mode with Dark Sidebar for premium visual balance.
 
 // ─── Toast Notifications ──────────────────────
 function showToast(message, type = 'success') {

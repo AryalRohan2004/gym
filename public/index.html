@@ -10,35 +10,53 @@
 </head>
 
 <body>
-  <div class="login-page">
-    <div class="login-bg-orb"></div>
-    <div class="login-bg-orb"></div>
-    <div class="login-bg-orb"></div>
-
-    <div class="login-card">
-      <div class="login-logo">
-        <div class="icon"><img src="/images/logo.jpg" alt="FIT24"></div>
-        <h1>FIT24</h1>
-        <p>Management System</p>
+  <div class="login-container">
+    <!-- Left Hero Section with fit.png background -->
+    <div class="login-hero" style="background-image: linear-gradient(rgba(10, 10, 26, 0.4), rgba(10, 10, 26, 0.85)), url('/images/fit.png');">
+      <div class="hero-content">
+        <div class="hero-logo">
+          <span class="logo-emoji">🏋️‍♂️</span>
+          <h2>FIT24</h2>
+        </div>
+        <h1 class="hero-title">Push Your Limits, Track Your Progress</h1>
+        <p class="hero-subtitle">Welcome to the FIT24 Admin Console. Manage members, coordinate schedules, and streamline gym operations with precision and ease.</p>
+        
+        <div class="hero-feature-pill">
+          <span class="dot"></span> Real-time Access Control Enabled
+        </div>
       </div>
+    </div>
 
-      <div class="login-error" id="loginError"></div>
+    <!-- Right Login Section -->
+    <div class="login-form-side">
+      <div class="login-card-v2">
+        <div class="login-header-v2">
+          <h1>Admin Sign In</h1>
+          <p>Access your dashboard and management console</p>
+        </div>
 
-      <form id="loginForm">
-        <div class="form-group">
-          <label for="username">Username</label>
-          <input type="text" id="username" class="form-input" placeholder="Enter username" required
-            autocomplete="username">
+        <div class="login-error" id="loginError"></div>
+
+        <form id="loginForm">
+          <div class="form-group">
+            <label for="username">Username</label>
+            <input type="text" id="username" class="form-input" placeholder="Enter username" required
+              autocomplete="username">
+          </div>
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" class="form-input" placeholder="Enter password" required
+              autocomplete="current-password">
+          </div>
+          <button type="submit" class="btn-primary-v2" id="loginBtn">
+            <span id="loginText">Sign In to Workspace</span>
+          </button>
+        </form>
+        
+        <div class="login-footer-v2">
+          <p>© 2026 FIT24 Management. All rights reserved.</p>
         </div>
-        <div class="form-group">
-          <label for="password">Password</label>
-          <input type="password" id="password" class="form-input" placeholder="Enter password" required
-            autocomplete="current-password">
-        </div>
-        <button type="submit" class="btn btn-primary" id="loginBtn">
-          <span id="loginText">Sign In</span>
-        </button>
-      </form>
+      </div>
     </div>
   </div>
 
