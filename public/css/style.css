@@ -281,6 +281,25 @@ body {
   margin-left: 260px;
   padding: 32px;
   min-height: 100vh;
+  position: relative;
+  z-index: 1;
+}
+
+/* SUBTLE WATERMARK BACKGROUND */
+.main-content::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url('/images/back.png');
+  background-position: center 40%;
+  background-repeat: no-repeat;
+  background-size: min(500px, 70%);
+  opacity: 0.04; /* Extremely subtle to ensure it looks premium and not creepy */
+  pointer-events: none; /* Ensure it doesn't block any clicks or selections */
+  z-index: -1;
 }
 
 .page-header {
