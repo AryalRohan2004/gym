@@ -143,9 +143,17 @@ function startScheduler() {
 
   console.log('⏰ Notification scheduler started (runs daily at 9:00 AM).');
 
+  // Poll Hikvision device every 5 seconds for attendance events
+  cron.schedule('*/5 * * * * *', () => {
+    hikvision.pollAndRecordAttendance();
+  });
+
+  console.log('📋 Attendance polling started (every 5 seconds from Hikvision device).');
+
   // Also run immediately on startup
   setTimeout(() => {
     runDailyCheck();
+    hikvision.pollAndRecordAttendance();
   }, 2000);
 }
 

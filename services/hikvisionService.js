@@ -85,7 +85,7 @@ async function testHikvisionConnection(ip, port, username, password) {
 
 /**
  * 2. fetchHikvisionEvents()
- * Can be used to pull logs/events from the Hikvision device manually or via cron.
+ * Pulls today's access events from the Hikvision device.
  */
 async function fetchHikvisionEvents() {
   try {
@@ -94,31 +94,117 @@ async function fetchHikvisionEvents() {
 
     const url = `http://${config.ip}:${config.port}/ISAPI/AccessControl/AcsEvent?format=json`;
     
-    // Payload for searching events (placeholder structure)
-    const payload = {
-      "AcsEventCond": {
-        "searchID": "1",
-        "searchResultPosition": 0,
-        "maxResults": 10,
-        "major": 5, // Access Control Event
-        "minor": 75 // Fingerprint Comparison
+    // Search for today's events (using local timezone to avoid UTC shifting)
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    const localDate = `${year}-${month}-${day}`;
+    
+    // Use +08:00 because the Hikvision device's internal clock is set to +08:00 timezone
+    const startTime = localDate + 'T00:00:00+08:00';
+    const endTime = localDate + 'T23:59:59+08:00';
+
+    let allEvents = [];
+    let currentPosition = 0;
+    const maxResults = 30; // Device limits to 30 per request
+
+    while (true) {
+      const payload = {
+        "AcsEventCond": {
+          "searchID": "attendance-poll",
+          "searchResultPosition": currentPosition,
+          "maxResults": maxResults,
+          "major": 5, // Access Control Event
+          "minor": 0, // 0 fetches all access control events (fingerprint, face, etc.)
+          "startTime": startTime,
+          "endTime": endTime
+        }
+      };
+
+      const response = await fetchWithAuth(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }, config);
+
+      if (!response.ok) {
+        if (allEvents.length > 0) break; // Return what we have if a later page fails
+        return { success: false, message: `Failed to fetch events: ${response.status}` };
       }
-    };
 
-    const response = await fetchWithAuth(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    }, config);
-
-    if (response.ok) {
       const data = await response.json();
-      return { success: true, data };
+      const events = data.AcsEvent?.InfoList || [];
+      allEvents = allEvents.concat(events);
+
+      // If we received fewer events than the max, we've reached the end
+      if (events.length < maxResults) {
+        break;
+      }
+      currentPosition += maxResults;
     }
-    return { success: false, message: `Failed to fetch events: ${response.status}` };
+
+    return { success: true, data: { AcsEvent: { InfoList: allEvents } } };
   } catch (err) {
     console.error('Error fetching Hikvision events:', err);
     return { success: false, message: err.message };
+  }
+}
+
+/**
+ * 2b. pollAndRecordAttendance()
+ * Polls the Hikvision device for today's access events and records attendance.
+ */
+async function pollAndRecordAttendance() {
+  try {
+    console.log('[Hikvision Poll] Starting manual event poll...');
+    const result = await fetchHikvisionEvents();
+    
+    if (!result.success) {
+      console.error('[Hikvision Poll] Failed to fetch events:', result.message);
+      return;
+    }
+    
+    const events = result.data.AcsEvent?.InfoList || [];
+    console.log(`[Hikvision Poll] Found ${events.length} events from device today.`);
+    
+    if (events.length === 0) return;
+
+    const allMembers = db.getAllMembers('', 'all');
+    let recorded = 0;
+
+    for (const event of events) {
+      const employeeNo = event.employeeNoString || event.employeeNo;
+      if (!employeeNo) continue;
+
+      // Only process successful access events (currentVerifyMode exists means access was granted)
+      if (event.currentVerifyMode === undefined && !event.name) continue;
+
+      const phoneDigits = String(employeeNo).replace(/\D/g, '');
+      const member = allMembers.find(m => String(m.phone).replace(/\D/g, '') === phoneDigits);
+
+      if (member && member.status === 'active') {
+        const eventTime = event.time || null;
+        const attendance = db.recordAttendance(member.id, eventTime);
+        if (!attendance.duplicate) {
+          recorded++;
+          console.log(`[Hikvision Poll] Recorded attendance for ${member.full_name} (${attendance.shift} shift)`);
+        }
+      } else {
+        if (!member) {
+          console.log(`[Hikvision Poll] IGNORED SCAN: Employee ID / Phone ${phoneDigits} not found in gym database.`);
+        } else if (member.status !== 'active') {
+          console.log(`[Hikvision Poll] IGNORED SCAN: Member ${member.full_name} is marked as '${member.status}'.`);
+        }
+      }
+    }
+
+    if (recorded > 0) {
+      console.log(`[Hikvision Poll] Recorded ${recorded} new attendance entries from device events.`);
+    }
+  } catch (err) {
+    // Silently fail - polling is a backup mechanism
+    console.error('[Hikvision Poll] Error:', err.message);
   }
 }
 
@@ -127,7 +213,7 @@ async function fetchHikvisionEvents() {
  * This function handles an incoming event, checks the member's status, and opens the door if valid.
  * It is expected to be called when an event log is received (e.g., via webhook or polling).
  */
-async function handleFingerprintEvent(employeeNo) {
+async function handleFingerprintEvent(employeeNo, timestamp = null) {
   try {
     console.log(`[Hikvision] Received fingerprint event for employeeNo: ${employeeNo}`);
     
@@ -148,7 +234,10 @@ async function handleFingerprintEvent(employeeNo) {
 
     // Check member payment/membership status
     if (member.status === 'active') {
-      console.log(`[Hikvision] Access Granted for ${member.full_name} (${employeeNoStr}). Opening door...`);
+      // Auto-record attendance on successful fingerprint scan
+      const attendance = db.recordAttendance(member.id, timestamp);
+      const shiftMsg = attendance.duplicate ? '(already checked in)' : `(${attendance.shift} shift)`;
+      console.log(`[Hikvision] Access Granted for ${member.full_name} (${employeeNoStr}). Attendance: ${shiftMsg}. Opening door...`);
       await openDoor();
       return { success: true, message: 'Access granted', action: 'open' };
     } else {
@@ -365,6 +454,7 @@ module.exports = {
   getHikvisionConfig,
   testHikvisionConnection,
   fetchHikvisionEvents,
+  pollAndRecordAttendance,
   handleFingerprintEvent,
   openDoor,
   denyAccess,

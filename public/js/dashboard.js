@@ -48,6 +48,7 @@ function navigateTo(page) {
 
   if (page === 'overview') loadDashboard();
   if (page === 'members') loadMembers();
+  if (page === 'attendance') loadAttendancePage();
   if (page === 'notifications') loadNotifications();
 }
 
@@ -78,6 +79,7 @@ async function loadDashboard() {
     document.getElementById('statActive').textContent = stats.active;
     document.getElementById('statExpiring').textContent = stats.expiringSoon;
     document.getElementById('statExpired').textContent = stats.expired;
+    document.getElementById('statTodayAttendance').textContent = stats.todayAttendance || 0;
 
     // Load expiring soon list
     const expRes = await fetch('/api/members?status=active');
@@ -178,13 +180,53 @@ document.getElementById('addMemberBtn').addEventListener('click', () => {
   form.reset();
   document.getElementById('memberId').value = '';
   document.getElementById('memberJoinDate').value = new Date().toISOString().split('T')[0];
-  document.getElementById('memberExpiryDate').value = '';
+  document.getElementById('memberDuration').value = '1';
+  document.getElementById('memberPlan').value = 'Monthly';
+  calculateExpiryDate();
   modal.classList.add('active');
 });
 
 document.getElementById('modalClose').addEventListener('click', () => modal.classList.remove('active'));
 document.getElementById('modalCancel').addEventListener('click', () => modal.classList.remove('active'));
 modal.addEventListener('click', (e) => { if (e.target === modal) modal.classList.remove('active'); });
+
+// ─── Auto-calculate Expiry Date ───────────────────
+function calculateExpiryDate() {
+  const joinDateStr = document.getElementById('memberJoinDate').value;
+  const durationStr = document.getElementById('memberDuration').value;
+  
+  if (durationStr === 'custom') {
+    // Leave Expiry Date manual
+    return;
+  }
+  
+  if (joinDateStr && durationStr) {
+    const joinDate = new Date(joinDateStr);
+    const duration = parseInt(durationStr, 10);
+    
+    // Add months
+    joinDate.setMonth(joinDate.getMonth() + duration);
+    
+    // Format to YYYY-MM-DD
+    const expiryDateStr = joinDate.toISOString().split('T')[0];
+    document.getElementById('memberExpiryDate').value = expiryDateStr;
+    
+    // Auto-select Plan Type based on duration
+    const planSelect = document.getElementById('memberPlan');
+    if (duration === 1) planSelect.value = 'Monthly';
+    else if (duration === 3) planSelect.value = 'Quarterly';
+    else if (duration === 6) planSelect.value = 'Half-Yearly';
+    else if (duration === 12) planSelect.value = 'Yearly';
+  }
+}
+
+function handleExpiryDateManualChange() {
+  document.getElementById('memberDuration').value = 'custom';
+}
+
+document.getElementById('memberJoinDate').addEventListener('change', calculateExpiryDate);
+document.getElementById('memberDuration').addEventListener('change', calculateExpiryDate);
+document.getElementById('memberExpiryDate').addEventListener('change', handleExpiryDateManualChange);
 
 async function editMember(id) {
   try {
@@ -209,14 +251,28 @@ async function editMember(id) {
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const id = document.getElementById('memberId').value;
+  
+  // Determine duration
+  let durationVal = document.getElementById('memberDuration').value;
+  let duration_months = 1;
+  if (durationVal === 'custom') {
+    const start = new Date(document.getElementById('memberJoinDate').value);
+    const end = new Date(document.getElementById('memberExpiryDate').value);
+    if (!isNaN(start) && !isNaN(end)) {
+      duration_months = Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24 * 30)));
+    }
+  } else {
+    duration_months = parseInt(durationVal, 10);
+  }
+
   const body = {
     full_name: document.getElementById('memberName').value.trim(),
     phone: document.getElementById('memberPhone').value.trim(),
     email: document.getElementById('memberEmail').value.trim(),
     address: document.getElementById('memberAddress').value.trim(),
     join_date: document.getElementById('memberJoinDate').value,
-    duration_months: parseInt(document.getElementById('memberDuration').value),
-    expiry_date: document.getElementById('memberExpiryDate').value || undefined,
+    duration_months: duration_months,
+    expiry_date: document.getElementById('memberExpiryDate').value,
     plan_type: document.getElementById('memberPlan').value,
     notes: document.getElementById('memberNotes').value.trim()
   };
@@ -369,6 +425,253 @@ async function deleteNotification(id) {
 }
 
 // ═══════════════════════════════════════════════
+// ATTENDANCE
+// ═══════════════════════════════════════════════
+
+let currentAttendanceDate = new Date().toISOString().split('T')[0];
+let currentShiftFilter = 'all';
+
+async function loadAttendancePage() {
+  await loadAttendanceSummary();
+  await loadAttendance();
+  setupCheckinSearch();
+}
+
+async function loadAttendanceSummary() {
+  try {
+    const res = await fetch('/api/attendance/summary');
+    const summary = await res.json();
+    const tabsContainer = document.getElementById('dateTabs');
+
+    // Update today's mini stats
+    if (summary.length > 0) {
+      const today = summary[0];
+      document.getElementById('attendMorning').textContent = today.morning;
+      document.getElementById('attendDay').textContent = today.day;
+      document.getElementById('attendTotal').textContent = today.total;
+    }
+
+    // Render date tabs
+    tabsContainer.innerHTML = summary.map((s, i) => {
+      const d = new Date(s.date + 'T00:00:00');
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+      const dayNum = d.getDate();
+      const month = d.toLocaleDateString('en-US', { month: 'short' });
+      const isActive = s.date === currentAttendanceDate;
+      const isToday = i === 0;
+      return `
+        <button class="date-tab ${isActive ? 'active' : ''}" data-date="${s.date}">
+          <span class="date-tab-day">${isToday ? 'Today' : dayName}</span>
+          <span class="date-tab-num">${dayNum}</span>
+          <span class="date-tab-month">${month}</span>
+          <span class="date-tab-count">${s.total} ✓</span>
+        </button>
+      `;
+    }).join('');
+
+    // Attach click handlers
+    tabsContainer.querySelectorAll('.date-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        currentAttendanceDate = tab.dataset.date;
+        tabsContainer.querySelectorAll('.date-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        loadAttendance();
+      });
+    });
+  } catch { showToast('Failed to load attendance summary', 'error'); }
+}
+
+async function loadAttendance() {
+  try {
+    const res = await fetch(`/api/attendance?date=${currentAttendanceDate}&shift=${currentShiftFilter}`);
+    const records = await res.json();
+    const tbody = document.getElementById('attendanceBody');
+    const empty = document.getElementById('emptyAttendance');
+    const tableContainer = document.getElementById('attendanceTableContainer');
+
+    if (records.length === 0) {
+      tbody.innerHTML = '';
+      tableContainer.style.display = 'none';
+      empty.style.display = 'block';
+      return;
+    }
+
+    empty.style.display = 'none';
+    tableContainer.style.display = 'block';
+
+    tbody.innerHTML = records.map((r, idx) => {
+      const time = new Date(r.check_in_time.replace(' ', 'T'));
+      const timeStr = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+      const shiftClass = r.shift === 'morning' ? 'shift-morning' : 'shift-day';
+      const shiftLabel = r.shift === 'morning' ? '🌅 Morning' : '☀️ Day';
+
+      return `
+        <tr class="fade-in" style="animation-delay:${idx * 0.03}s">
+          <td>${idx + 1}</td>
+          <td><div class="member-name">${escapeHtml(r.full_name)}</div></td>
+          <td>${escapeHtml(r.phone)}</td>
+          <td>${timeStr}</td>
+          <td><span class="badge ${shiftClass}">${shiftLabel}</span></td>
+          <td class="actions-cell">
+            <button class="action-btn delete btn-delete-attendance" data-id="${r.id}" title="Remove Record">
+              <i class="fas fa-trash"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    // Attach delete handlers
+    tbody.querySelectorAll('.btn-delete-attendance').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (confirm('Are you sure you want to remove this attendance record?')) {
+          try {
+            const res = await fetch(`/api/attendance/${btn.dataset.id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (res.ok && data.success) {
+              showToast('Attendance record removed', 'success');
+              loadAttendanceSummary(); // Reload to update counts and table
+            } else {
+              showToast(data.message || 'Failed to remove record', 'error');
+            }
+          } catch (err) {
+            showToast('Failed to connect to server', 'error');
+          }
+        }
+      });
+    });
+  } catch { showToast('Failed to load attendance', 'error'); }
+}
+
+// Shift filter buttons
+document.querySelectorAll('.shift-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.shift-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentShiftFilter = btn.dataset.shift;
+    loadAttendance();
+  });
+});
+
+// Check-in search with autocomplete
+let checkinSearchTimeout;
+let allMembersCache = [];
+
+function setupCheckinSearch() {
+  const input = document.getElementById('checkinSearch');
+  const suggestions = document.getElementById('checkinSuggestions');
+
+  input.addEventListener('input', () => {
+    clearTimeout(checkinSearchTimeout);
+    const query = input.value.trim();
+    document.getElementById('checkinMemberId').value = '';
+
+    if (query.length < 2) {
+      suggestions.innerHTML = '';
+      suggestions.style.display = 'none';
+      return;
+    }
+
+    checkinSearchTimeout = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/members?search=${encodeURIComponent(query)}&status=all`);
+        allMembersCache = await res.json();
+
+        if (allMembersCache.length === 0) {
+          suggestions.innerHTML = '<div class="suggestion-item no-result">No members found</div>';
+          suggestions.style.display = 'block';
+          return;
+        }
+
+        suggestions.innerHTML = allMembersCache.slice(0, 8).map(m => `
+          <div class="suggestion-item" data-id="${m.id}" data-name="${escapeHtml(m.full_name)}">
+            <span class="suggestion-name">${escapeHtml(m.full_name)}</span>
+            <span class="suggestion-phone">${m.phone}</span>
+            <span class="badge ${m.status}" style="font-size:10px;">${m.status}</span>
+          </div>
+        `).join('');
+        suggestions.style.display = 'block';
+
+        suggestions.querySelectorAll('.suggestion-item[data-id]').forEach(item => {
+          item.addEventListener('click', () => {
+            input.value = item.dataset.name;
+            document.getElementById('checkinMemberId').value = item.dataset.id;
+            suggestions.style.display = 'none';
+          });
+        });
+      } catch { suggestions.style.display = 'none'; }
+    }, 250);
+  });
+
+  // Hide suggestions on click outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.checkin-form')) {
+      suggestions.style.display = 'none';
+    }
+  });
+}
+
+// Sync Device button
+document.getElementById('syncHikvisionBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('syncHikvisionBtn');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '⏳ Syncing...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/hikvision/sync');
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast('Successfully synced attendance from device', 'success');
+      loadAttendanceSummary(); // Reload to show new entries
+    } else {
+      showToast(data.message || 'Failed to sync device', 'error');
+    }
+  } catch (err) {
+    showToast('Failed to connect to server', 'error');
+  } finally {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+  }
+});
+
+// Check-in button
+document.getElementById('checkinBtn').addEventListener('click', async () => {
+  const memberId = document.getElementById('checkinMemberId').value;
+  const searchVal = document.getElementById('checkinSearch').value.trim();
+
+  if (!memberId && !searchVal) {
+    showToast('Please search and select a member first', 'error');
+    return;
+  }
+
+  const body = memberId ? { member_id: parseInt(memberId) } : { phone: searchVal };
+
+  try {
+    const res = await fetch('/api/attendance/checkin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      showToast(data.error || 'Check-in failed', res.status === 409 ? 'info' : 'error');
+      return;
+    }
+
+    showToast(data.message || 'Checked in successfully!');
+    document.getElementById('checkinSearch').value = '';
+    document.getElementById('checkinMemberId').value = '';
+    document.getElementById('checkinSuggestions').style.display = 'none';
+
+    // Refresh attendance data
+    await loadAttendanceSummary();
+    await loadAttendance();
+  } catch { showToast('Failed to check in member', 'error'); }
+});
+
+// ═══════════════════════════════════════════════
 // SETTINGS - Change Password
 // ═══════════════════════════════════════════════
 
@@ -397,6 +700,110 @@ document.getElementById('passwordForm').addEventListener('submit', async (e) => 
 });
 
 // ═══════════════════════════════════════════════
+// SETTINGS - Hikvision Hardware
+// ═══════════════════════════════════════════════
+
+async function loadHikvisionSettings() {
+  try {
+    const res = await fetch('/api/hikvision/settings');
+    const config = await res.json();
+    if (config.ip) document.getElementById('hikIp').value = config.ip;
+    if (config.port) document.getElementById('hikPort').value = config.port;
+    if (config.username) document.getElementById('hikUsername').value = config.username;
+    if (config.password) document.getElementById('hikPassword').value = config.password;
+  } catch (err) {
+    console.error('Failed to load Hikvision settings', err);
+  }
+}
+
+// Load settings when the settings page is opened
+document.getElementById('nav-settings').addEventListener('click', loadHikvisionSettings);
+
+document.getElementById('hikvisionForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const ip = document.getElementById('hikIp').value.trim();
+  const port = document.getElementById('hikPort').value.trim();
+  const username = document.getElementById('hikUsername').value.trim();
+  const password = document.getElementById('hikPassword').value;
+
+  try {
+    const res = await fetch('/api/hikvision/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip, port, username, password })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || data.message);
+    showToast('Hikvision settings saved successfully!');
+  } catch (err) {
+    showToast(err.message || 'Failed to save settings', 'error');
+  }
+});
+
+document.getElementById('hikTestBtn').addEventListener('click', async () => {
+  const ip = document.getElementById('hikIp').value.trim();
+  const port = document.getElementById('hikPort').value.trim();
+  const username = document.getElementById('hikUsername').value.trim();
+  const password = document.getElementById('hikPassword').value;
+
+  if (!ip) return showToast('Device IP is required to test connection', 'error');
+
+  const btn = document.getElementById('hikTestBtn');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '⏳ Testing...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/hikvision/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip, port, username, password })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || 'Connection successful!', 'success');
+    } else {
+      showToast(data.message || 'Connection failed', 'error');
+    }
+  } catch (err) {
+    showToast('Failed to connect to server', 'error');
+  } finally {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('hikSetupLanBtn').addEventListener('click', async () => {
+  const laptopIp = document.getElementById('laptopIp').value.trim();
+  
+  if (!laptopIp) return showToast('Please enter the IP address of this computer', 'error');
+
+  const btn = document.getElementById('hikSetupLanBtn');
+  const originalText = btn.innerHTML;
+  btn.innerHTML = '⏳ Setting up...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/hikvision/setup-lan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ laptopIp })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || 'LAN Setup successful!', 'success');
+    } else {
+      showToast(data.message || 'LAN Setup failed', 'error');
+    }
+  } catch (err) {
+    showToast('Failed to connect to server', 'error');
+  } finally {
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+  }
+});
+
+// ═══════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════
 
@@ -412,6 +819,40 @@ function formatDate(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
+
+function toTitleCase(str) {
+  if (!str) return '';
+  return str.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
+}
+
+// ─── Real-Time Attendance via SSE ──────────────
+const evtSource = new EventSource('/api/attendance/stream');
+evtSource.onmessage = function(event) {
+  try {
+    const data = JSON.parse(event.data);
+    const memberName = toTitleCase(data.member_name);
+    if (data.duplicate) {
+      showToast(`${memberName} already checked in for ${data.shift} shift`, 'info');
+    } else {
+      showToast(`${memberName} checked in! (${data.shift} shift)`, 'success');
+      
+      // If we are on the attendance page, refresh the list
+      const attendancePage = document.getElementById('page-attendance');
+      if (attendancePage && attendancePage.classList.contains('active')) {
+        loadAttendanceSummary();
+        loadAttendance();
+      }
+      
+      // If on overview page, refresh dashboard stats
+      const overviewPage = document.getElementById('page-overview');
+      if (overviewPage && overviewPage.classList.contains('active')) {
+        loadDashboard();
+      }
+    }
+  } catch (err) {
+    console.error('Error parsing SSE data:', err);
+  }
+};
 
 // ─── Initial Load ─────────────────────────────
 loadDashboard();

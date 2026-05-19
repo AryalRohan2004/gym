@@ -1,8 +1,14 @@
 const { DatabaseSync } = require('node:sqlite');
 const bcrypt = require('bcryptjs');
 const path = require('path');
+const EventEmitter = require('events');
 
-const dbPath = path.join(__dirname, 'gym.db');
+const dbEvents = new EventEmitter();
+
+// In a packaged Electron app, we cannot write to the .asar archive. 
+// We use an environment variable to set a writable directory (e.g., AppData).
+const dbDir = process.env.GYMPRO_DB_DIR || __dirname;
+const dbPath = path.join(dbDir, 'gym.db');
 const db = new DatabaseSync(dbPath);
 
 // Enable WAL mode for better performance
@@ -47,6 +53,15 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS attendance (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    member_id INTEGER NOT NULL,
+    check_in_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    date DATE NOT NULL,
+    shift TEXT NOT NULL CHECK(shift IN ('morning', 'day')),
+    FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
   );
 `);
 
@@ -257,8 +272,111 @@ function setSetting(key, value) {
   `).run(key, value);
 }
 
+// ─── Attendance Queries ─────────────────────────────────────
+
+// Helper: get local date string (YYYY-MM-DD) avoiding UTC offset issues
+function getLocalDateStr(date) {
+  const d = date || new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getLocalTimeStr(date) {
+  const d = date || new Date();
+  const hours = String(d.getHours()).padStart(2, '0');
+  const mins = String(d.getMinutes()).padStart(2, '0');
+  const secs = String(d.getSeconds()).padStart(2, '0');
+  return `${getLocalDateStr(d)} ${hours}:${mins}:${secs}`;
+}
+
+function recordAttendance(memberId, timestamp = null) {
+  // Always use the computer's local system time to avoid timezone/clock mismatches from the device
+  const now = new Date();
+  const date = getLocalDateStr(now);
+  const hour = now.getHours();
+  const shift = hour < 12 ? 'morning' : 'day';
+
+  // Check for duplicate check-in (same member, same date, same shift)
+  const existing = db.prepare(
+    'SELECT id FROM attendance WHERE member_id = ? AND date = ? AND shift = ?'
+  ).get(memberId, date, shift);
+
+  if (existing) {
+    const resultObj = { duplicate: true, shift, date };
+    // Do not emit event for duplicates to prevent spam during background polling
+    return resultObj;
+  }
+
+  const checkInTime = getLocalTimeStr(now);
+  const result = db.prepare(
+    'INSERT INTO attendance (member_id, check_in_time, date, shift) VALUES (?, ?, ?, ?)'
+  ).run(memberId, checkInTime, date, shift);
+
+  const resultObj = { id: result.lastInsertRowid, shift, date, check_in_time: checkInTime, duplicate: false };
+  dbEvents.emit('attendance', { ...resultObj, memberId });
+  return resultObj;
+}
+
+function deleteAttendance(id) {
+  const result = db.prepare('DELETE FROM attendance WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+function getAttendanceByDate(date, shift = '') {
+  let query = `
+    SELECT a.*, m.full_name, m.phone, m.status as member_status
+    FROM attendance a
+    JOIN members m ON a.member_id = m.id
+    WHERE a.date = ?
+  `;
+  const params = [date];
+
+  if (shift && shift !== 'all') {
+    query += ' AND a.shift = ?';
+    params.push(shift);
+  }
+
+  query += ' ORDER BY a.check_in_time DESC';
+  return db.prepare(query).all(...params);
+}
+
+function getAttendanceSummary(days = 7) {
+  const results = [];
+  const now = new Date();
+
+  for (let i = 0; i < days; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    const dateStr = getLocalDateStr(d);
+
+    const morning = db.prepare(
+      "SELECT COUNT(*) as count FROM attendance WHERE date = ? AND shift = 'morning'"
+    ).get(dateStr).count;
+
+    const day = db.prepare(
+      "SELECT COUNT(*) as count FROM attendance WHERE date = ? AND shift = 'day'"
+    ).get(dateStr).count;
+
+    results.push({
+      date: dateStr,
+      morning,
+      day,
+      total: morning + day
+    });
+  }
+
+  return results;
+}
+
+function getTodayAttendanceCount() {
+  const today = getLocalDateStr();
+  return db.prepare('SELECT COUNT(*) as count FROM attendance WHERE date = ?').get(today).count;
+}
+
 module.exports = {
   db,
+  dbEvents,
   seedAdmin,
   getAdminByUsername,
   updateAdminPassword,
@@ -277,5 +395,10 @@ module.exports = {
   deleteNotification,
   hasRecentNotification,
   getSetting,
-  setSetting
+  setSetting,
+  recordAttendance,
+  deleteAttendance,
+  getAttendanceByDate,
+  getAttendanceSummary,
+  getTodayAttendanceCount
 };

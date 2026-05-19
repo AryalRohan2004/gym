@@ -27,6 +27,9 @@
       <button class="nav-item" data-page="members" id="nav-members">
         <span class="nav-icon">👥</span> Members
       </button>
+      <button class="nav-item" data-page="attendance" id="nav-attendance">
+        <span class="nav-icon">📋</span> Attendance
+      </button>
       <button class="nav-item" data-page="notifications" id="nav-notifications">
         <span class="nav-icon">🔔</span> Notifications
       </button>
@@ -82,6 +85,11 @@
             <div class="stat-icon">❌</div>
             <div class="stat-value" id="statExpired">0</div>
             <div class="stat-label">Expired</div>
+          </div>
+          <div class="stat-card teal fade-in" style="animation-delay:.4s">
+            <div class="stat-icon">📋</div>
+            <div class="stat-value" id="statTodayAttendance">0</div>
+            <div class="stat-label">Today's Attendance</div>
           </div>
         </div>
 
@@ -145,6 +153,92 @@
         </div>
       </section>
 
+      <!-- ATTENDANCE PAGE -->
+      <section class="page-section" id="page-attendance">
+        <div class="page-header">
+          <h1>Attendance</h1>
+          <p>Track daily gym attendance with morning &amp; day shifts</p>
+        </div>
+
+        <!-- Quick Check-in -->
+        <div class="section-card checkin-bar slide-up">
+          <div class="section-header">
+            <h2>⚡ Quick Check-in</h2>
+          </div>
+          <div class="checkin-form">
+            <div class="search-box" style="flex:1;">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="checkinSearch" placeholder="Search member by name or phone..." autocomplete="off">
+              <div class="checkin-suggestions" id="checkinSuggestions"></div>
+            </div>
+            <input type="hidden" id="checkinMemberId">
+            <button class="btn btn-primary" id="checkinBtn" style="width:auto; white-space:nowrap;">✅ Check In</button>
+            <button class="btn btn-secondary" id="syncHikvisionBtn" style="width:auto; white-space:nowrap; margin-left: auto;">🔄 Sync Device</button>
+          </div>
+        </div>
+
+        <!-- Today's Mini Stats -->
+        <div class="attendance-mini-stats slide-up" style="animation-delay:.1s">
+          <div class="mini-stat morning">
+            <span class="mini-stat-icon">🌅</span>
+            <div>
+              <div class="mini-stat-value" id="attendMorning">0</div>
+              <div class="mini-stat-label">Morning</div>
+            </div>
+          </div>
+          <div class="mini-stat day">
+            <span class="mini-stat-icon">☀️</span>
+            <div>
+              <div class="mini-stat-value" id="attendDay">0</div>
+              <div class="mini-stat-label">Day</div>
+            </div>
+          </div>
+          <div class="mini-stat total">
+            <span class="mini-stat-icon">📊</span>
+            <div>
+              <div class="mini-stat-value" id="attendTotal">0</div>
+              <div class="mini-stat-label">Total Today</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Date Tabs & Shift Filter -->
+        <div class="section-card slide-up" style="animation-delay:.2s">
+          <div class="section-header" style="flex-wrap:wrap; gap:12px;">
+            <h2>📅 Attendance Records</h2>
+            <div class="shift-filter">
+              <button class="shift-btn active" data-shift="all">All</button>
+              <button class="shift-btn" data-shift="morning">🌅 Morning</button>
+              <button class="shift-btn" data-shift="day">☀️ Day</button>
+            </div>
+          </div>
+
+          <div class="date-tabs" id="dateTabs"></div>
+
+          <div id="attendanceTableContainer">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Member</th>
+                  <th>Phone</th>
+                  <th>Check-in Time</th>
+                  <th>Shift</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="attendanceBody"></tbody>
+            </table>
+          </div>
+
+          <div class="empty-state" id="emptyAttendance" style="display:none;">
+            <div class="empty-icon">📋</div>
+            <h3>No attendance records</h3>
+            <p>No members have checked in for this date/shift.</p>
+          </div>
+        </div>
+      </section>
+
       <!-- NOTIFICATIONS PAGE -->
       <section class="page-section" id="page-notifications">
         <div class="page-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
@@ -195,6 +289,50 @@
             <button type="submit" class="btn btn-primary" style="width:auto;">Update Password</button>
           </form>
         </div>
+
+        <div class="settings-card" style="margin-top: 24px;">
+          <h3>🔒 Hikvision Hardware Settings</h3>
+          <form id="hikvisionForm">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Device IP Address</label>
+                <input type="text" class="form-input" id="hikIp" placeholder="192.168.1.182">
+              </div>
+              <div class="form-group">
+                <label>Device Port</label>
+                <input type="text" class="form-input" id="hikPort" placeholder="80">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Username</label>
+                <input type="text" class="form-input" id="hikUsername" placeholder="admin">
+              </div>
+              <div class="form-group">
+                <label>Password</label>
+                <input type="password" class="form-input" id="hikPassword" placeholder="********">
+              </div>
+            </div>
+            <div style="display: flex; gap: 12px; margin-bottom: 24px;">
+              <button type="button" class="btn btn-secondary" id="hikTestBtn" style="width: auto;">📡 Test Connection</button>
+              <button type="submit" class="btn btn-primary" style="width: auto;">💾 Save Settings</button>
+            </div>
+
+            <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 24px 0;">
+            
+            <h4>🌐 Gym Computer LAN Setup</h4>
+            <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 16px;">
+              To receive live fingerprint events, you must tell the Hikvision device the IP address of this computer.
+            </p>
+            <div class="form-row" style="align-items: flex-end;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label>This Computer's IP (Laptop IP)</label>
+                <input type="text" class="form-input" id="laptopIp" placeholder="192.168.1.115">
+              </div>
+              <button type="button" class="btn btn-primary" id="hikSetupLanBtn" style="width: auto; background-color: var(--green); border-color: var(--green);">🔌 Setup LAN Events</button>
+            </div>
+          </form>
+        </div>
       </section>
 
     </main>
@@ -236,15 +374,28 @@
               <input type="date" class="form-input" id="memberJoinDate" required>
             </div>
             <div class="form-group">
-              <label>Duration (Months) *</label>
-              <input type="number" class="form-input" id="memberDuration" min="1" max="36" required
-                placeholder="e.g. 3">
+              <label>Duration (Optional)</label>
+              <select class="form-input" id="memberDuration">
+                <option value="custom">Custom Date (Manual)</option>
+                <option value="1">1 Month</option>
+                <option value="2">2 Months</option>
+                <option value="3">3 Months</option>
+                <option value="4">4 Months</option>
+                <option value="5">5 Months</option>
+                <option value="6">6 Months</option>
+                <option value="7">7 Months</option>
+                <option value="8">8 Months</option>
+                <option value="9">9 Months</option>
+                <option value="10">10 Months</option>
+                <option value="11">11 Months</option>
+                <option value="12">12 Months</option>
+              </select>
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label>Expiry Date</label>
-              <input type="date" class="form-input" id="memberExpiryDate" placeholder="Auto-calculated if blank">
+              <label>Expiry Date *</label>
+              <input type="date" class="form-input" id="memberExpiryDate" required placeholder="Select date">
             </div>
             <div class="form-group">
               <label>Plan Type</label>

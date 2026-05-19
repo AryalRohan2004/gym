@@ -1,0 +1,6 @@
+@echo off
+echo Cleaning up old builds...
+rmdir /s /q dist
+echo Building GymPro App...
+npm run build
+pause

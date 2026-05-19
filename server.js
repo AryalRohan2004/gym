@@ -4,12 +4,13 @@ const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const db = require('./db/database');
+const { dbEvents } = require('./db/database');
 const { requireAuth, requirePageAuth } = require('./middleware/auth');
 const { startScheduler, sendSMS, notifyMember } = require('./cron/notifier');
 const hikvision = require('./services/hikvisionService');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 // ─── Middleware ──────────────────────────────────────────────
 app.use(express.json());
@@ -229,6 +230,7 @@ app.delete('/api/notifications/:id', requireAuth, (req, res) => {
 
 app.get('/api/dashboard/stats', requireAuth, (req, res) => {
   const stats = db.getDashboardStats();
+  stats.todayAttendance = db.getTodayAttendanceCount();
   res.json(stats);
 });
 
@@ -251,6 +253,96 @@ app.put('/api/admin/password', requireAuth, (req, res) => {
   const hash = bcrypt.hashSync(newPassword, 10);
   db.updateAdminPassword(admin.id, hash);
   res.json({ success: true, message: 'Password updated successfully.' });
+});
+
+// ═══════════════════════════════════════════════════════════
+// ATTENDANCE ROUTES
+// ═══════════════════════════════════════════════════════════
+
+app.post('/api/attendance/checkin', requireAuth, (req, res) => {
+  const { member_id, phone } = req.body;
+
+  let member;
+  if (member_id) {
+    member = db.getMemberById(parseInt(member_id));
+  } else if (phone) {
+    const allMembers = db.getAllMembers('', 'all');
+    member = allMembers.find(m => String(m.phone).replace(/\D/g, '') === String(phone).replace(/\D/g, ''));
+  }
+
+  if (!member) {
+    return res.status(404).json({ error: 'Member not found.' });
+  }
+
+  const result = db.recordAttendance(member.id);
+
+  if (result.duplicate) {
+    return res.status(409).json({
+      error: `${member.full_name} is already checked in for the ${result.shift} shift today.`,
+      shift: result.shift,
+      member_name: member.full_name
+    });
+  }
+
+  res.status(201).json({
+    success: true,
+    message: `${member.full_name} checked in for ${result.shift} shift.`,
+    attendance: {
+      ...result,
+      member_name: member.full_name,
+      phone: member.phone
+    }
+  });
+});
+
+app.get('/api/attendance', requireAuth, (req, res) => {
+  const date = req.query.date || new Date().toISOString().split('T')[0];
+  const shift = req.query.shift || 'all';
+  const records = db.getAttendanceByDate(date, shift);
+  res.json(records);
+});
+
+app.delete('/api/attendance/:id', requireAuth, (req, res) => {
+  try {
+    const success = db.deleteAttendance(req.params.id);
+    if (success) {
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ success: false, message: 'Record not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+app.get('/api/attendance/summary', requireAuth, (req, res) => {
+  const days = parseInt(req.query.days) || 7;
+  const summary = db.getAttendanceSummary(days);
+  res.json(summary);
+});
+
+// ─── SERVER-SENT EVENTS (SSE) ────────────────────────────────
+const sseClients = new Set();
+app.get('/api/attendance/stream', requireAuth, (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  const sendEvent = (data) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  sseClients.add(sendEvent);
+
+  req.on('close', () => {
+    sseClients.delete(sendEvent);
+  });
+});
+
+dbEvents.on('attendance', (data) => {
+  const member = db.getMemberById(data.memberId);
+  const eventData = { ...data, member_name: member ? member.full_name : 'Unknown' };
+  sseClients.forEach(client => client(eventData));
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -322,6 +414,7 @@ app.post('/api/hikvision/auth', async (req, res) => {
     const phoneDigits = String(employeeNo).replace(/\D/g, '');
     const allMembers = db.getAllMembers('', 'all');
     const member = allMembers.find(m => String(m.phone).replace(/\D/g, '') === phoneDigits);
+    const eventTime = body.time || body.dateTime || null;
 
     if (!member) {
       console.log(`[Hikvision Auth] DENIED - Employee ID ${phoneDigits} not found in database.`);
@@ -329,7 +422,10 @@ app.post('/api/hikvision/auth', async (req, res) => {
     }
 
     if (member.status === 'active') {
-      console.log(`[Hikvision Auth] GRANTED - ${member.full_name} (${phoneDigits}) - Active member.`);
+      // Auto-record attendance on successful access
+      const attendance = db.recordAttendance(member.id, eventTime);
+      const shiftMsg = attendance.duplicate ? '(already checked in)' : `(${attendance.shift} shift)`;
+      console.log(`[Hikvision Auth] GRANTED - ${member.full_name} (${phoneDigits}) - Active member. Attendance: ${shiftMsg}`);
       return res.status(200).json({ success: true, message: 'Access granted', action: 'open' });
     } else {
       console.log(`[Hikvision Auth] DENIED - ${member.full_name} (${phoneDigits}) - Status: ${member.status}`);
@@ -349,19 +445,32 @@ app.post('/api/hikvision/event', async (req, res) => {
   // Extract employeeNo depending on the exact payload structure your Hikvision sends
   // This is a placeholder extraction based on common ISAPI event structures
   let employeeNo = null;
+  let eventTime = null;
   
   if (eventData && eventData.AccessControllerEvent && eventData.AccessControllerEvent.employeeNoString) {
     employeeNo = eventData.AccessControllerEvent.employeeNoString;
+    eventTime = eventData.dateTime || eventData.time || null;
   } else if (eventData && eventData.employeeNo) {
     employeeNo = eventData.employeeNo;
+    eventTime = eventData.time || null;
   }
 
   if (!employeeNo) {
     return res.status(400).json({ success: false, message: 'employeeNo not found in event payload' });
   }
 
-  const result = await hikvision.handleFingerprintEvent(employeeNo);
+  const result = await hikvision.handleFingerprintEvent(employeeNo, eventTime);
   res.json(result);
+});
+
+// Manual sync endpoint for attendance
+app.get('/api/hikvision/sync', requireAuth, async (req, res) => {
+  try {
+    const result = await hikvision.pollAndRecordAttendance();
+    res.json({ success: true, message: 'Sync complete', result });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // ─── Serve Pages ────────────────────────────────────────────
