@@ -1,6 +1,6 @@
 node_modules/
 dist/
 .env
-gym.db
+gym.db*
 debug.log
 *.exe

@@ -12,6 +12,7 @@
   "build": {
     "appId": "com.gympro.app",
     "productName": "GymPro",
+    "asar": false,
     "directories": {
       "output": "dist"
     },

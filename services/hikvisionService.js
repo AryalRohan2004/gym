@@ -18,7 +18,12 @@ function getHikvisionConfig() {
  * Performs an HTTP fetch and automatically handles Digest Authentication if required
  * by the Hikvision device (which is typical).
  */
-async function fetchWithAuth(url, options, config) {
+async function fetchWithAuth(url, options = {}, config) {
+  if (!options.signal) {
+    // Fail fast on LAN requests (3 seconds instead of 10-30s)
+    options.signal = AbortSignal.timeout(3000);
+  }
+
   // First attempt, usually responds with 401 and WWW-Authenticate for Digest
   const initialResponse = await fetch(url, options);
 
@@ -146,6 +151,9 @@ async function fetchHikvisionEvents() {
 
     return { success: true, data: { AcsEvent: { InfoList: allEvents } } };
   } catch (err) {
+    if (err.name === 'TimeoutError' || (err.cause && err.cause.code === 'UND_ERR_CONNECT_TIMEOUT') || err.message === 'fetch failed') {
+      return { success: false, message: 'Connection timeout or device offline' };
+    }
     console.error('Error fetching Hikvision events:', err);
     return { success: false, message: err.message };
   }
@@ -157,16 +165,17 @@ async function fetchHikvisionEvents() {
  */
 async function pollAndRecordAttendance() {
   try {
-    console.log('[Hikvision Poll] Starting manual event poll...');
     const result = await fetchHikvisionEvents();
     
     if (!result.success) {
-      console.error('[Hikvision Poll] Failed to fetch events:', result.message);
+      // Suppress spammy offline logs during background polling
       return;
     }
     
     const events = result.data.AcsEvent?.InfoList || [];
-    console.log(`[Hikvision Poll] Found ${events.length} events from device today.`);
+    if (events.length > 0) {
+      console.log(`[Hikvision Poll] Found ${events.length} events from device today.`);
+    }
     
     if (events.length === 0) return;
 

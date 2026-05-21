@@ -38,23 +38,43 @@ function createWindow() {
 }
 
 function startServer() {
-  const dbDir = app.getPath('userData'); // Safe, writable directory (e.g. AppData/Roaming/GymPro)
+  const dbDir = app.getPath('userData'); 
+  const fs = require('fs');
+  const logPath = path.join(dbDir, 'server-error.log');
+  const logStream = fs.createWriteStream(logPath, { flags: 'a' });
   
-  // Use Electron's bundled Node to run our server.js, enabling SQLite support.
-  // This inherently understands the packed .asar archive path.
-  serverProcess = fork(path.join(__dirname, 'server.js'), [], {
-    env: { 
-      ...process.env, 
-      ELECTRON_RUN_AS_NODE: '1',
-      GYMPRO_DB_DIR: dbDir 
-    },
-    execArgv: ['--experimental-sqlite'],
-    stdio: 'inherit'
-  });
+  logStream.write('\n\n--- Starting server with fork ---\n');
+  logStream.write('Node version: ' + process.version + '\n');
+  logStream.write('Electron version: ' + process.versions.electron + '\n');
+  logStream.write('__dirname is: ' + __dirname + '\n');
 
-  serverProcess.on('error', (err) => {
-    console.error('Failed to start server:', err);
-  });
+  try {
+    serverProcess = fork(path.join(__dirname, 'server.js'), [], {
+      env: { 
+        ...process.env, 
+        ELECTRON_RUN_AS_NODE: '1',
+        GYMPRO_DB_DIR: dbDir,
+        PORT: '3000'
+      },
+      execArgv: ['--experimental-sqlite'],
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc']
+    });
+
+    serverProcess.stdout.on('data', (data) => logStream.write(data));
+    serverProcess.stderr.on('data', (data) => logStream.write(data));
+
+    serverProcess.on('error', (err) => {
+      logStream.write('Fork error: ' + err.toString() + '\n');
+    });
+
+    serverProcess.on('exit', (code, signal) => {
+      logStream.write('Server exited with code ' + code + ' signal ' + signal + '\n');
+      const { dialog } = require('electron');
+      dialog.showErrorBox('Server Crashed', 'The background server exited unexpectedly. Check logs at: ' + logPath);
+    });
+  } catch (err) {
+    logStream.write('Failed to start fork: ' + err.toString() + '\n');
+  }
 }
 
 app.whenReady().then(() => {
