@@ -2,42 +2,46 @@ const cron = require('node-cron');
 const db = require('../db/database');
 const hikvision = require('../services/hikvisionService');
 
-let twilioClient = null;
-let twilioPhone = null;
+let aakashSmsToken = null;
 
-// Initialize Twilio if credentials are available
-function initTwilio() {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  twilioPhone = process.env.TWILIO_PHONE_NUMBER;
-
-  if (sid && token && twilioPhone) {
-    try {
-      const twilio = require('twilio');
-      twilioClient = twilio(sid, token);
-      console.log('📱 Twilio SMS initialized successfully.');
-      return true;
-    } catch (err) {
-      console.log('⚠️  Twilio initialization failed:', err.message);
-      return false;
-    }
+// Initialize SMS if credentials are available
+function initSMS() {
+  aakashSmsToken = process.env.AAKASH_SMS_AUTH_TOKEN;
+  if (aakashSmsToken) {
+    console.log('📱 Aakash SMS initialized successfully.');
+    return true;
   } else {
-    console.log('📱 Twilio not configured — SMS notifications will be logged to console.');
+    console.log('📱 Aakash SMS not configured — SMS notifications will be logged to console.');
     return false;
   }
 }
 
-// Send SMS (or log to console if Twilio not configured)
+// Send SMS (or log to console if SMS not configured)
 async function sendSMS(phone, message) {
-  if (twilioClient && twilioPhone) {
+  if (aakashSmsToken) {
     try {
-      const result = await twilioClient.messages.create({
-        body: message,
-        from: twilioPhone,
-        to: phone
+      const body = {
+        auth_token: aakashSmsToken,
+        to: phone,
+        text: message
+      };
+      
+      const res = await fetch('https://sms.aakashsms.com/sms/v3/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
       });
-      console.log(`📨 SMS sent to ${phone}: ${result.sid}`);
-      return { success: true, sid: result.sid };
+      
+      const data = await res.json();
+      
+      if (!res.ok || data.error) {
+        throw new Error(data.message || 'Failed to send SMS via Aakash SMS');
+      }
+      
+      console.log(`📨 SMS sent to ${phone} via Aakash SMS`);
+      return { success: true, sid: data.message_id || 'aakash-sms' };
     } catch (err) {
       console.error(`❌ SMS failed to ${phone}:`, err.message);
       return { success: false, error: err.message };
@@ -58,15 +62,23 @@ async function notifyMember(member, type) {
   }
 
   const expiryDate = new Date(member.expiry_date);
-  const formattedDate = expiryDate.toLocaleDateString('en-US', {
-    year: 'numeric', month: 'long', day: 'numeric'
-  });
+  const now = new Date();
+  expiryDate.setHours(0, 0, 0, 0);
+  now.setHours(0, 0, 0, 0);
+  const diffDays = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
 
   let message;
   if (type === 'expiry_warning') {
-    message = `🏋️ Hi ${member.full_name}! Your gym membership is expiring on ${formattedDate}. Please renew to continue your fitness journey! - GymPro Management`;
+    if (diffDays > 0) {
+      const dayStr = diffDays === 1 ? '1 day' : `${diffDays} days`;
+      message = `Gym Membership will expire in ${dayStr} - Fit24 Health And Fitness Club`;
+    } else if (diffDays === 0) {
+      message = 'Gym Membership will expire today - Fit24 Health And Fitness Club';
+    } else {
+      message = 'Gym Membership Expired - Fit24 Health And Fitness Club';
+    }
   } else {
-    message = `🏋️ Hi ${member.full_name}! Your gym membership has expired on ${formattedDate}. Visit us to renew and keep crushing your goals! - GymPro Management`;
+    message = 'Gym Membership Expired - Fit24 Health And Fitness Club';
   }
 
   const result = await sendSMS(member.phone, message);
@@ -134,7 +146,7 @@ async function runDailyCheck() {
 
 // Start the cron scheduler
 function startScheduler() {
-  initTwilio();
+  initSMS();
 
   // Run daily at 9:00 AM
   cron.schedule('0 9 * * *', () => {

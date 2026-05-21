@@ -238,13 +238,21 @@ function logNotification(memberId, type, message, status = 'sent') {
 }
 
 function getNotifications(limit = 50) {
-  return db.prepare(`
+  const notifs = db.prepare(`
     SELECT n.*, m.full_name, m.phone
     FROM notifications n
     JOIN members m ON n.member_id = m.id
     ORDER BY n.sent_at DESC
     LIMIT ?
   `).all(limit);
+  
+  // Append Z to sent_at so the browser parses the SQLite UTC timestamp correctly
+  return notifs.map(n => {
+    if (n.sent_at && !n.sent_at.endsWith('Z')) {
+      n.sent_at = n.sent_at.replace(' ', 'T') + 'Z';
+    }
+    return n;
+  });
 }
 
 function hasRecentNotification(memberId, type, hoursAgo = 20) {
