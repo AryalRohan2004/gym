@@ -166,6 +166,11 @@ app.put('/api/members/:id', requireAuth, (req, res) => {
     }
   }
 
+  const protectedNames = ['saurav kunwar', 'ashim pandey'];
+  if (protectedNames.includes(existing.full_name.toLowerCase()) || (full_name && protectedNames.includes(full_name.toLowerCase()))) {
+    finalStatus = 'active';
+  }
+
   const member = db.updateMember(id, {
     full_name: full_name || existing.full_name,
     phone: phone || existing.phone,
@@ -191,6 +196,12 @@ app.delete('/api/members/:id', requireAuth, (req, res) => {
   if (!existing) {
     return res.status(404).json({ error: 'Member not found.' });
   }
+
+  const protectedNames = ['saurav kunwar', 'ashim pandey'];
+  if (protectedNames.includes(existing.full_name.toLowerCase())) {
+    return res.status(403).json({ error: 'Saurav Kunwar and Ashim Pandey are protected members and cannot be deleted.' });
+  }
+
   db.deleteMember(id);
   res.json({ success: true, message: 'Member deleted.' });
 });
@@ -206,7 +217,10 @@ app.post('/api/members/:id/notify', requireAuth, async (req, res) => {
   }
 
   try {
-    await notifyMember(member, req.body.type || 'expiry_warning');
+    const result = await notifyMember(member, req.body.type || 'expiry_warning', true);
+    if (result && result.success === false) {
+      return res.status(400).json({ error: result.error || 'Failed to send notification.' });
+    }
     res.json({ success: true, message: `Notification sent to ${member.full_name}.` });
   } catch (err) {
     res.status(500).json({ error: 'Failed to send notification: ' + err.message });
@@ -354,12 +368,13 @@ app.get('/api/hikvision/settings', requireAuth, (req, res) => {
   // Don't send back password directly for security, just send a flag if it's set
   const responseConfig = {
     ...config,
-    password: config.password ? '********' : ''
+    password: config.password ? '********' : '',
+    laptopIp: db.getSetting('laptop_ip', '')
   };
   res.json(responseConfig);
 });
 
-app.post('/api/hikvision/settings', requireAuth, (req, res) => {
+app.post('/api/hikvision/settings', requireAuth, async (req, res) => {
   const { ip, port, username, password } = req.body;
   
   if (ip !== undefined) db.setSetting('hikvision_ip', ip);
@@ -367,7 +382,17 @@ app.post('/api/hikvision/settings', requireAuth, (req, res) => {
   if (username !== undefined) db.setSetting('hikvision_username', username);
   if (password && password !== '********') db.setSetting('hikvision_password', password);
 
-  res.json({ success: true, message: 'Hikvision settings updated successfully.' });
+  // Automatically configure the Hikvision device to talk back to this PC!
+  let setupMsg = '';
+  if (ip !== undefined) {
+    const setupResult = await hikvision.setupLanConnection();
+    if (!setupResult.success) {
+      console.error('[Hikvision] Auto-setup LAN failed:', setupResult.message);
+      setupMsg = ' However, auto-configuring the device failed. Please ensure the device is online.';
+    }
+  }
+
+  res.json({ success: true, message: 'Hikvision settings updated successfully.' + setupMsg });
 });
 
 app.post('/api/hikvision/test', requireAuth, async (req, res) => {
@@ -388,7 +413,8 @@ app.post('/api/hikvision/test', requireAuth, async (req, res) => {
 });
 
 app.post('/api/hikvision/setup-lan', requireAuth, async (req, res) => {
-  const laptopIp = req.body.laptopIp || '192.168.1.115';
+  const laptopIp = req.body.laptopIp || db.getSetting('laptop_ip', '192.168.1.115');
+  if (req.body.laptopIp) db.setSetting('laptop_ip', req.body.laptopIp); // Save it if provided here
   const result = await hikvision.setupLanConnection(laptopIp);
   res.json(result);
 });

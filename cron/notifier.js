@@ -54,11 +54,11 @@ async function sendSMS(phone, message) {
 }
 
 // Notify a single member
-async function notifyMember(member, type) {
-  // Check if we already notified recently
-  if (db.hasRecentNotification(member.id, type)) {
+async function notifyMember(member, type, force = false) {
+  // Check if we already notified recently (only if not forced)
+  if (!force && db.hasRecentNotification(member.id, type)) {
     console.log(`⏭️  Skipping ${member.full_name} — already notified recently.`);
-    return;
+    return { success: false, reason: 'already_notified' };
   }
 
   const expiryDate = new Date(member.expiry_date);
@@ -69,14 +69,12 @@ async function notifyMember(member, type) {
 
   let message;
   if (type === 'expiry_warning') {
-    if (diffDays > 0) {
-      const dayStr = diffDays === 1 ? '1 day' : `${diffDays} days`;
-      message = `Gym Membership will expire in ${dayStr} - Fit24 Health And Fitness Club`;
-    } else if (diffDays === 0) {
-      message = 'Gym Membership will expire today - Fit24 Health And Fitness Club';
-    } else {
-      message = 'Gym Membership Expired - Fit24 Health And Fitness Club';
-    }
+    message = `Dear Customer,
+Your membership at Fit24 Gym and Fitness will expire in 3 days. Please renew your membership before the expiry date.
+Thank you,
+Fit24 Gym and Fitness`;
+  } else if (type === 'expired') {
+    message = `Dear Customer, your membership at Fit24 Gym and Fitness expires today. Please renew your membership to continue accessing our facilities. Thank you!`;
   } else {
     message = 'Gym Membership Expired - Fit24 Health And Fitness Club';
   }
@@ -88,6 +86,7 @@ async function notifyMember(member, type) {
     message,
     result.success ? 'sent' : 'failed'
   );
+  return result;
 }
 
 // Run the daily check
@@ -136,8 +135,10 @@ async function runDailyCheck() {
 
     if (diffDays === 0) {
       await notifyMember(member, 'expired');
-    } else {
+    } else if (diffDays === 3) {
       await notifyMember(member, 'expiry_warning');
+    } else {
+      console.log(`⏭️  Skipping ${member.full_name} — diffDays is ${diffDays} (notifications are only sent at 3 days before or on the day).`);
     }
   }
 

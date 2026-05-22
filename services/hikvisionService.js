@@ -1,6 +1,23 @@
 const db = require('../db/database');
 
 const crypto = require('crypto');
+const os = require('os');
+
+function getLocalIp() {
+  const nets = os.networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    if (name.toLowerCase().includes('vmware') || name.toLowerCase().includes('virtual')) continue;
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) return net.address;
+    }
+  }
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === 'IPv4' && !net.internal) return net.address;
+    }
+  }
+  return '192.168.1.115';
+}
 
 /**
  * Helper to fetch settings from DB.
@@ -20,8 +37,8 @@ function getHikvisionConfig() {
  */
 async function fetchWithAuth(url, options = {}, config) {
   if (!options.signal) {
-    // Fail fast on LAN requests (3 seconds instead of 10-30s)
-    options.signal = AbortSignal.timeout(3000);
+    // Fail fast on LAN requests (8 seconds instead of default 30s+)
+    options.signal = AbortSignal.timeout(8000);
   }
 
   // First attempt, usually responds with 401 and WWW-Authenticate for Digest
@@ -316,9 +333,11 @@ async function denyAccess(employeeNo, reason) {
  * 6. setupLanConnection()
  * Configures the Hikvision device to push attendance events to the laptop over the LAN.
  */
-async function setupLanConnection(laptopIp = '192.168.1.115') {
+async function setupLanConnection() {
   try {
     const config = getHikvisionConfig();
+    const laptopIp = getLocalIp();
+    
     if (!config.ip) return { success: false, message: 'Hikvision IP not configured' };
 
     const url = `http://${config.ip}:${config.port}/ISAPI/Event/notification/httpHosts`;
@@ -332,7 +351,7 @@ async function setupLanConnection(laptopIp = '192.168.1.115') {
     <parameterFormatType>JSON</parameterFormatType>
     <addressingFormatType>ipaddress</addressingFormatType>
     <ipAddress>${laptopIp}</ipAddress>
-    <portNo>3000</portNo>
+    <portNo>3001</portNo>
     <httpAuthenticationMethod>none</httpAuthenticationMethod>
   </HttpHostNotification>
 </HttpHostNotificationList>`;

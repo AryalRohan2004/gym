@@ -143,6 +143,12 @@ function addMember(member) {
 }
 
 function updateMember(id, member) {
+  const protectedNames = ['saurav kunwar', 'ashim pandey'];
+  let status = member.status || 'active';
+  if (protectedNames.includes(member.full_name.toLowerCase())) {
+    status = 'active';
+  }
+
   const stmt = db.prepare(`
     UPDATE members SET
       full_name = ?, phone = ?, email = ?, address = ?,
@@ -159,7 +165,7 @@ function updateMember(id, member) {
     member.duration_months,
     member.expiry_date,
     member.plan_type,
-    member.status || 'active',
+    status,
     member.notes || '',
     id
   );
@@ -167,6 +173,13 @@ function updateMember(id, member) {
 }
 
 function deleteMember(id) {
+  const existing = getMemberById(id);
+  if (existing) {
+    const protectedNames = ['saurav kunwar', 'ashim pandey'];
+    if (protectedNames.includes(existing.full_name.toLowerCase())) {
+      throw new Error('Protected members cannot be deleted.');
+    }
+  }
   return db.prepare('DELETE FROM members WHERE id = ?').run(id);
 }
 
@@ -209,7 +222,12 @@ function updateExpiredMembers() {
   now.setHours(0, 0, 0, 0);
   let count = 0;
 
+  const protectedNames = ['saurav kunwar', 'ashim pandey'];
+
   for (const m of allActive) {
+    if (protectedNames.includes(m.full_name.toLowerCase())) {
+      continue;
+    }
     const expiry = new Date(m.expiry_date);
     expiry.setHours(0, 0, 0, 0);
     if (expiry < now) {

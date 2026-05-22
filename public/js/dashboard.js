@@ -163,7 +163,10 @@ function renderMembers(members) {
         <div class="actions-cell">
           <button class="action-btn" title="Edit" onclick="editMember(${m.id})">✏️</button>
           <button class="action-btn notify" title="Send Notification" onclick="sendNotification(${m.id}, 'expiry_warning')">📨</button>
-          <button class="action-btn delete" title="Delete" onclick="confirmDelete(${m.id}, '${escapeHtml(m.full_name)}')">🗑️</button>
+          ${['saurav kunwar', 'ashim pandey'].includes(m.full_name.trim().toLowerCase())
+            ? `<button class="action-btn delete" title="Protected Member" style="opacity: 0.4; cursor: not-allowed;" disabled>🔒</button>`
+            : `<button class="action-btn delete" title="Delete" onclick="confirmDelete(${m.id}, '${escapeHtml(m.full_name)}')">🗑️</button>`
+          }
         </div>
       </td>
     </tr>`;
@@ -298,6 +301,10 @@ let deleteId = null;
 const confirmDlg = document.getElementById('confirmDialog');
 
 function confirmDelete(id, name) {
+  if (name && ['saurav kunwar', 'ashim pandey'].includes(name.trim().toLowerCase())) {
+    showToast('This member is protected and cannot be deleted.', 'error');
+    return;
+  }
   deleteId = id;
   document.getElementById('confirmTitle').textContent = `Delete ${name}?`;
   document.getElementById('confirmMessage').textContent = 'This will permanently remove this member and their data.';
@@ -773,35 +780,6 @@ document.getElementById('hikTestBtn').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('hikSetupLanBtn').addEventListener('click', async () => {
-  const laptopIp = document.getElementById('laptopIp').value.trim();
-  
-  if (!laptopIp) return showToast('Please enter the IP address of this computer', 'error');
-
-  const btn = document.getElementById('hikSetupLanBtn');
-  const originalText = btn.innerHTML;
-  btn.innerHTML = '⏳ Setting up...';
-  btn.disabled = true;
-
-  try {
-    const res = await fetch('/api/hikvision/setup-lan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ laptopIp })
-    });
-    const data = await res.json();
-    if (data.success) {
-      showToast(data.message || 'LAN Setup successful!', 'success');
-    } else {
-      showToast(data.message || 'LAN Setup failed', 'error');
-    }
-  } catch (err) {
-    showToast('Failed to connect to server', 'error');
-  } finally {
-    btn.innerHTML = originalText;
-    btn.disabled = false;
-  }
-});
 
 // ═══════════════════════════════════════════════
 // HELPERS
